@@ -6,7 +6,9 @@ authors = ["Robert Sherwood <robert.sherwood@credentive.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.10"
+oscal-pydantic-v2 = "^2024.2.29"
+stanza = "^1.8.1"
 
 
 [build-system]
