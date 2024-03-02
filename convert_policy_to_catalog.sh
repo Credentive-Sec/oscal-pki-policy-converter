@@ -9,8 +9,8 @@ if [[ ! -f $policy_file ]] ; then
     exit 1
 fi
 
-
-pandoc_dir=/tmp/.pandoc_install
+# Check for the presence of pandoc and install it if it's not there
+pandoc_dir=/tmp/.oscal-pki-policy-converter
 pandoc_exe=$pandoc_dir/pandoc-3.1.11/bin/pandoc
 
 if [[ ! -x $pandoc_exe ]]; then
@@ -32,12 +32,9 @@ if [[ ! -x $pandoc_exe ]]; then
     )
 fi
 
-
-
-
-
 # Convert the document to markdown with pandoc
-output=${policy_file/\.docx/\.md}
-echo converting $input to $output
-# $pandoc_exe "$input" -o "$output" --wrap=none --to=gfm
-# Setup the directory for installation of pandoc
+md_file=${policy_file/\.docx/\.md}
+echo converting $policy_file to $md_file
+$pandoc_exe "$policy_file" -o "$md_file" --wrap=none --to=gfm
+
+
