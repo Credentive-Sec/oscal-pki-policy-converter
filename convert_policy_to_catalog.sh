@@ -33,8 +33,11 @@ if [[ ! -x $pandoc_exe ]]; then
 fi
 
 # Convert the document to markdown with pandoc
-md_file=${policy_file/\.docx/\.md}
+policy_base=$(basename $policy_file)
+md_file=${policy_base/\.docx/\.md}
 echo converting $policy_file to $md_file
-$pandoc_exe "$policy_file" -o "$md_file" --wrap=none --to=gfm
+$pandoc_exe "$policy_file" -o "$pandoc_dir/$md_file" --wrap=none --to=gfm
 
+# Tokenize the document
+python -m pki_policy_tokenizer "$pandoc_dir/$md_file"
 

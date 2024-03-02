@@ -2,8 +2,8 @@
 # type:ignore
 
 import stanza
-import glob
 import pathlib
+import argparse
 import re
 
 nlp = stanza.Pipeline(
@@ -19,18 +19,7 @@ def get_sentences(input: str) -> list[str]:
     return sentences
 
 
-for markdown_doc in glob.glob("converted_markdown/*.md"):
-    # Calculate the target filename from the source filename
-    target_doc = pathlib.Path.joinpath(
-        pathlib.Path.cwd(),
-        pathlib.Path("tokenized_markdown"),
-        pathlib.Path(markdown_doc).name,
-    )
-
-    # open and tokenize the source file
-    with open(markdown_doc) as raw_doc:
-        policy_lines = raw_doc.readlines()
-
+def parse_document(policy_lines: list[str]) -> list[str]:
     line_count = len(policy_lines)
 
     # Precompile some regex we'll be using repeatedly
@@ -106,6 +95,20 @@ for markdown_doc in glob.glob("converted_markdown/*.md"):
         # If we get here, we're probably dealing with a regular line of text
         else:
             processed_lines.extend(get_sentences(input=line))
+
+
+if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser()
+
+    arg_parser.add_argument("filename")
+
+    args = arg_parser.parse_args()
+
+    # open and read the source file
+    with open(args.filename) as raw_doc:
+        policy_lines = raw_doc.readlines()
+
+    processed_lines = parse_document(policy_lines=policy_lines)
 
     # Write out the tokenized file, terminating each string with a newline
     target_doc.write_text("\n".join(processed_lines), encoding="utf-8")
