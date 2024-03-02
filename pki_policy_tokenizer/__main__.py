@@ -28,8 +28,6 @@ def parse_document(policy_lines: list[str]) -> list[str]:
 
     processed_lines: list[str] = []
     for index, line in enumerate(policy_lines):
-        print(f"Processing line {index} of {line_count} from {markdown_doc}.")
-
         # Check for blank lines (lines with only '\n') and just add them to the processed_lines list
         # Skip the rest of the processing for these lines
         if len(line) == 1:
@@ -96,6 +94,8 @@ def parse_document(policy_lines: list[str]) -> list[str]:
         else:
             processed_lines.extend(get_sentences(input=line))
 
+    return processed_lines
+
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
@@ -104,11 +104,15 @@ if __name__ == "__main__":
 
     args = arg_parser.parse_args()
 
+    source_file = pathlib.Path(args.filename)
+
+    output_file = source_file.with_suffix(".tokenized")
+
     # open and read the source file
-    with open(args.filename) as raw_doc:
+    with open(source_file) as raw_doc:
         policy_lines = raw_doc.readlines()
 
     processed_lines = parse_document(policy_lines=policy_lines)
 
     # Write out the tokenized file, terminating each string with a newline
-    target_doc.write_text("\n".join(processed_lines), encoding="utf-8")
+    output_file.write_text("\n".join(processed_lines), encoding="utf-8")
