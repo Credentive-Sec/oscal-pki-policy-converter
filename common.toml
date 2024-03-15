@@ -1,0 +1,42 @@
+# This file documents the key configuration values for parsing common policy
+
+[parser-configuration]
+# The title of a policy document is surprisingly difficult to identify by parsing, 
+# please provide it here
+title="X.509 Certificate Policy for the U.S. Federal PKI Common Policy Framework"
+
+# The word that precedes the version number, if any
+version_marker="Version"
+
+# If the first section (before the first section header) includes the metadata, set this to true
+metadata_in_first_section=true
+
+# Any section headers that the parser should skip.
+skip_sections=["Table of Contents"]
+
+# A string which indicates the start of a table of contents in the document
+toc_marker="Table of Contents"
+
+# A string that indicates the start of a version history
+revision_marker="Revision History"
+
+# A dictionary to identify which column in a revision history contains
+# - version id
+# - published date
+# - revision details (i.e. what changed in the version)
+# Note column numbers begin at zero
+[revision_table]
+id_column=0
+date_column=1
+detail_column=2
+
+
+# The string to pass to datetime.strptime to parse a publication date
+publication_date_format="%B %d, %Y"
+
+# Section headers that should be part of backmatter
+backmatter_sections=["References", "Bibliography"]
+
+# If you want to reuse the UUID for a given file, provide it here.
+# If no UUID is specified, a new one will be generated.
+# uuid = "0be7b13e-0a68-4c16-af59-eb882b76a3cb"

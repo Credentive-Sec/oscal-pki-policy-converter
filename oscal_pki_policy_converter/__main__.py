@@ -1,5 +1,5 @@
 from pathlib import Path
-import argparse
+import sys, os, argparse, tomllib
 from typing import Any
 
 from . import parsers
@@ -9,7 +9,14 @@ if __name__ == "__main__":
         prog="oscal_common_cp",
         description="A program to convert a parsed, tokenized RFC 3647 compliant PKI Policy to an OSCAL catalog.",
     )
-
+    arg_parser.add_argument(
+        "-c",
+        "--config",
+        dest="config_file",
+        type=str,
+        help="File containing parser configuration (default: common.toml)",
+        default="common.toml",
+    )
     arg_parser.add_argument(
         "-t",
         "--type",
@@ -24,6 +31,17 @@ if __name__ == "__main__":
 
     if args.parser_type is not None:
         oscal_parser = parsers.choose_parser(args.parser_type)
+
+    if args.config_file is not None:
+        config_file = Path(os.getcwd(), Path(args.config_file))
+    else:
+        config_file = Path(sys.path[0], Path("common.toml"))
+
+    try:
+        parser_config=tomllib.load(open(config_file, "rb"))
+    except tomllib.TOMLDecodeError as e:
+        print(f"Could not parse provided config file as TOML: {config_file}")
+        exit(1)
 
     policy_file_path = Path(args.filename)
 
