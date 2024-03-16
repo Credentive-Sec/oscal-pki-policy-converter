@@ -1,21 +1,33 @@
 #!/usr/bin/env bash
 
-if [[ -z $1 ]] ; then
-    echo "No catalog file name provided"
-    echo "usage: convert_policy_to_catalog.sh <policy file>"
-    exit 1
-fi
+while getopts ":p:c:h" opt; do
+    case $opt in
+        p) policy_arg="$OPTARG";;
+        c) config_arg="$OPTARG";;
+        h) echo "Usage: convert_policy_to_catalog.sh -c <config file> -p <policy file>"; exit 0;;
+        \?) echo "Invalid option: -$OPTARG"; exit 1;;
+    esac
+done
 
 # Get the absolute path of the input file
-policy_file=$(cd "$(dirname $1)" && pwd)/$(basename "$1")
+policy_file=$(cd "$(dirname $policy_arg)" && pwd)/$(basename "$policy_arg")
 
 if [[ ! -f $policy_file ]] ; then
     echo "ERROR: $1 is not a valid file"
-    echo "usage: convert_policy_to_catalog.sh <policy file>"
+    echo "Usage: convert_policy_to_catalog.sh -c <config file> -p <policy file>"
     exit 1
 fi
 
+if [[ -z $config_arg ]]; then
+    echo "No configuration file provided. Using default file (common.toml)"
+else
+    echo "Configuration file provided: $config_arg"
+    configuration_file=$(cd "$(dirname $config_arg)" && pwd)/$(basename "$config_arg")
+    echo "Configuration file provided: $config_arg"
+fi
+
 # Setup some environment variables
+export CONFIG_FILE=$configuration_file
 export POLICY_FILE=$policy_file
 export PANDOC_DIR=/tmp/.oscal-pki-policy-converter
 
@@ -70,5 +82,9 @@ export PANDOC_DIR=/tmp/.oscal-pki-policy-converter
     OUTPUT_FILENAME=$(dirname $POLICY_FILE)/${POLICY_BASE/\.docx/_oscal\.json}
 
     # Convert the tokenized document to an OSCAL catalog
-    poetry run python -m oscal_pki_policy_converter "$PANDOC_DIR/$MD_FILE" > $OUTPUT_FILENAME
+    if [[ -z $CONFIG_FILE ]]; then
+        poetry run python -m oscal_pki_policy_converter "$PANDOC_DIR/$MD_FILE" > $OUTPUT_FILENAME
+    else
+        poetry run python -m oscal_pki_policy_converter --config $CONFIG_FILE "$PANDOC_DIR/$MD_FILE" > $OUTPUT_FILENAME
+    fi
 )
