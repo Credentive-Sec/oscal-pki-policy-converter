@@ -2,7 +2,7 @@ from pathlib import Path
 import sys, os, argparse, tomllib
 from typing import Any
 
-from . import parsers
+from .  import parsers
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser(
@@ -37,6 +37,9 @@ if __name__ == "__main__":
     else:
         config_file = Path(sys.path[0], Path("common.toml"))
 
+
+    # Parse TOML file into dictionary    
+    parser_config: dict[str, Any] = {}
     try:
         parser_config=tomllib.load(open(config_file, "rb"))
     except tomllib.TOMLDecodeError as e:
@@ -48,7 +51,8 @@ if __name__ == "__main__":
     if policy_file_path.exists() and policy_file_path.is_file():
         with open(policy_file_path) as common_file:
             policy_catalog = oscal_parser.policy_to_catalog(
-                common_file.read().splitlines()
+                parse_config=parser_config,
+                policy_text=common_file.read().splitlines(),
             )
     else:
         print("You provided an argument that does not exist or is not a file.")

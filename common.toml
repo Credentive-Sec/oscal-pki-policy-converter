@@ -35,6 +35,8 @@ detail_column=2
 publication_date_format="%B %d, %Y"
 
 # Section headers that should be part of backmatter
+# Backmatter contains references to external resources such 
+# as documents that might be relevant, like a "references" or "bibliography" section
 backmatter_sections=["References", "Bibliography"]
 
 # If you want to reuse the UUID for a given file, provide it here.

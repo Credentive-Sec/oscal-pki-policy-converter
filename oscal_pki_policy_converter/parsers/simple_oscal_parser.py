@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import re
 import uuid
 from html.parser import HTMLParser
+from typing import Any
 
 from . import AbstractParser
 
@@ -13,34 +14,24 @@ class SimpleOscalParser(AbstractParser):
     toc_dict: dict[str, str] = {}
     toc_line_re = re.compile(r"^\[(?P<secnum>[\d\.]+)\s(?P<secname>[\w\s-]+)\s\[.*$")
 
-
-    def parse_table_of_contents(self, contents: list[str]):
-        for line in contents:
-            toc_line_match = self.toc_line_re.match(line)
-            if toc_line_match is not None:
-                toc_line_dict = toc_line_match.groupdict()
-                self.toc_dict[toc_line_dict["secname"]] = toc_line_dict["secnum"]
-
-
-    # Stupid python trick, initialize with zero using list comprehension
+    # Stupid python trick, initialize a list with zeroes using list comprehension
     toc_pos: list[int] = [0 for _ in range(1, 10)]
     toc_pos[0] = 1
 
 
-    # pandoc left some "span" tags in the document, so we need to strip html out of text
-    def strip_html_from_text(self, input: str) -> str:
-        return re.sub("<.*>", "", input)
-        
+    # NOTE: This program relies heavily on the specific format of the tokenized CP documents.
+    def policy_to_catalog(self, parse_config: dict[str, Any], policy_text: list[str]) -> document.Document:
+        # First, create an object variable representing the parser configuration toml file 
+        self.parse_config = parse_config
 
-    # This program relies heavily on the specific format of the tokenized CP documents.
-    def policy_to_catalog(self, common_policy: list[str]) -> document.Document:
+
         # We will parse the document and store all of the sections as their own list in a nested list
         sections: list[list[str]] = []
 
         section: list[str] = []
 
         # Parse the policy into lists
-        for line in common_policy:
+        for line in policy_text:
             if len(line) == 0:
                 # Skip blank lines
                 continue
@@ -72,11 +63,11 @@ class SimpleOscalParser(AbstractParser):
         for section in sections[1:]:
             # Check for a couple of special sections that we expect to see: TOC and References
             # First line of section is the contents, so we can check there
-            if "Table of Contents" in section[0]:
+            if "toc_marker" in self.parse_config.keys() and self.parse_config["toc_marker"] in section[0]:
                 # In some versions of common, the TOC is a separate section - skip it.
                 continue
             # The list of related documents is in a section titled "References" or "Bibliography"
-            if "References" in section[0] or "Bibliography" in section[0]:
+            if "backmatter_sections" in self.parse_config.keys() and section[0] in self.parse_config["backmatter_sections"]:
                 # Pass everything except the title line to parse_backmatter
                 backmatter = self.parse_backmatter(section[1:])
                 continue
@@ -151,6 +142,18 @@ class SimpleOscalParser(AbstractParser):
         return document.Document(catalog=common_catalog)
 
 
+    def parse_table_of_contents(self, contents: list[str]):
+        for line in contents:
+            toc_line_match = self.toc_line_re.match(line)
+            if toc_line_match is not None:
+                toc_line_dict = toc_line_match.groupdict()
+                self.toc_dict[toc_line_dict["secname"]] = toc_line_dict["secnum"]
+
+
+    # pandoc left some "span" tags in the document, so we need to strip html out of text
+    def strip_html_from_text(self, input: str) -> str:
+        return re.sub("<.*>", "", input)
+        
     def add_subsection_to_parent(
         self, parent: catalog.Group, child: catalog.Group
     ) -> catalog.Group:
@@ -289,10 +292,17 @@ class SimpleOscalParser(AbstractParser):
                 # Function works backwards from the END of a table, hence </table>
                 revision_table = self.parse_html_table(introduction, line_number)
                 revisions = self.revision_history_to_revisions(revision_table)
+
+                # revision_history_to_revisions can return an empty list
+                # In this case, set revisions to None so that it is excluded from
+                # the final output
+                if len(revisions) == 0:
+                    revisions = None
+                    
                 continue
             elif in_table:
                 continue
-            elif "Table of Contents" in line:
+            elif "toc_marker" in self.parse_config and self.parse_config["toc_marker"] in line:
                 in_toc = True
             elif line[0] == "[" and in_toc:
                 toc_lines.append(line)
@@ -368,19 +378,34 @@ class SimpleOscalParser(AbstractParser):
 
 
     def revision_history_to_revisions(self, revisions: list[list[str]]) -> list[common.Revision]:
+        # Intialize empty revision list
         revision_list: list[common.Revision] = []
+
+        # Get revision table column ids from config
+        if "revision_table" in self.parse_config.keys():
+            revision_columns = self.parse_config["revision_table"]
+            if "id_column" in revision_columns.keys():
+                id_column = revision_columns["id_column"]
+            if "date_column" in revision_columns.keys():
+                date_column = revision_columns["date_column"]
+            if "detail_column" in revision_columns.keys():
+                detail_column = revision_columns["detail_column"]
+        else:
+            # If configuration doesn't exist, return empty revision column
+            return revision_list
+        
         for row in revisions[1:]:
-            version_id = row[0]
+            version_id = row[id_column]
             try:
                 published_date = (
-                    datetime.strptime(row[1], "%B %d, %Y")
+                    datetime.strptime(row[date_column], "%B %d, %Y")
                     .replace(tzinfo=timezone.utc)
                     .isoformat()
                 )
             except ValueError:
                 # If we can't parse the date, we're probably in a weird header row
                 continue
-            revision_details = row[2]
+            revision_details = row[detail_column]
             revision_record = common.Revision(
                 version=version_id,
                 published=published_date,
