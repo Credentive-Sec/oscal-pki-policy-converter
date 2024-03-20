@@ -6,9 +6,6 @@ This version has been tested on linux, and requires python 3.12 as well as [Poet
 
 Future versions will be installable without these requirements.
 
-# Current limitations
-This version of the software is heavily biased toward Federal Common Policy, and it is unclear how other versions of the PKI Policy will work. See ROADMAP below for plans to address this
-
 # ROADMAP
 The following items are on our short term roadmap:
 
