@@ -20,17 +20,6 @@ toc_marker="Table of Contents"
 # A string that indicates the start of a version history
 revision_marker="Revision History"
 
-# A dictionary to identify which column in a revision history contains
-# - version id
-# - published date
-# - revision details (i.e. what changed in the version)
-# Note column numbers begin at zero
-[revision_table]
-id_column=0
-date_column=1
-detail_column=2
-
-
 # The string to pass to datetime.strptime to parse a publication date
 publication_date_format="%B %d, %Y"
 
@@ -42,3 +31,16 @@ backmatter_sections=["References", "Bibliography"]
 # If you want to reuse the UUID for a given file, provide it here.
 # If no UUID is specified, a new one will be generated.
 # uuid = "0be7b13e-0a68-4c16-af59-eb882b76a3cb"
+
+# These are keywords that indicate requirements
+requirement_keywords=["must", "shall", "should"]
+
+# A dictionary to identify which column in a revision history contains
+# - version id
+# - published date
+# - revision details (i.e. what changed in the version)
+# Note column numbers begin at zero
+[revision-table]
+id_column=0
+date_column=1
+detail_column=2
