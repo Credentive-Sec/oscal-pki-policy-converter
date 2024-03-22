@@ -22,7 +22,10 @@ class SimpleOscalParser(AbstractParser):
     # NOTE: This program relies heavily on the specific format of the tokenized CP documents.
     def policy_to_catalog(self, parse_config: dict[str, Any], policy_text: list[str]) -> document.Document:
         # First, create an object variable representing the parser configuration toml file 
-        self.parse_config = parse_config
+        if "parser-configuration" in parse_config.keys():
+            self.parse_config = parse_config["parser-configuration"]
+        if "revision-table" in parse_config.keys():
+            self.revision_table_headings = parse_config["revision-table"]
 
 
         # We will parse the document and store all of the sections as their own list in a nested list
@@ -66,8 +69,8 @@ class SimpleOscalParser(AbstractParser):
             if "toc_marker" in self.parse_config.keys() and self.parse_config["toc_marker"] in section[0]:
                 # In some versions of common, the TOC is a separate section - skip it.
                 continue
-            # The list of related documents is in a section titled "References" or "Bibliography"
-            if "backmatter_sections" in self.parse_config.keys() and section[0] in self.parse_config["backmatter_sections"]:
+            # The list of related documents is in a section titled "References" or "Bibliography" - Note we need to strip leading "#"
+            if "backmatter_sections" in self.parse_config.keys() and any([match for match in self.parse_config["backmatter_sections"] if match in section[0]]):
                 # Pass everything except the title line to parse_backmatter
                 backmatter = self.parse_backmatter(section[1:])
                 continue
@@ -183,6 +186,7 @@ class SimpleOscalParser(AbstractParser):
         # Strip off the leading hashes and the trailing space
         group_title = self.strip_html_from_text(re.sub("#+", "", section_contents[0]).strip())
 
+        # Sometimes we get empty headings - if so we'll skip this whole process
         if group_title != "":
             # Turn "Section Name" into "section-name"
             group_id = f"group-{sec_num}-{self.title_to_id(group_title)}"
@@ -193,24 +197,53 @@ class SimpleOscalParser(AbstractParser):
             )
 
             if len(section_contents) > 1:
-                # The section contains requirements, and must have a control
-                # Controls must be inside an inner group since a group can't have both
-                # an innert group and inner controls
-                section_control_group: catalog.Group = catalog.Group(
-                    id=re.sub("group", "control", group_id),
-                    title=f"{group_title} Controls",
-                )
+                # Process contents to identify any text that contains requriements
+                section_requirements: list[str] = []
+                section_overview: list[str] = []
+                for line in section_contents:
+                    if any([keyword in line for keyword in self.parse_config["requirement_keywords"]]):
+                        section_requirements.append(line)
+                    else:
+                        section_overview.append(line)
 
-                section_control_list: list[catalog.Control] | None = [
-                    self.section_to_control(
-                        section_number=sec_num,
-                        section_contents=section_contents,
+                # If a section has any requirements, they must go into an inner control group
+                # If a section has no requriements, but some statements, they should be added as parts
+                # Finally, if a section has no text at all, just return the group.
+
+                if len(section_requirements) > 0 :
+                    # The section contains requirements, and must have a control
+                    # Controls must be inside an inner group since a group can't have both
+                    # an inner group and inner controls
+                    section_control_group: catalog.Group = catalog.Group(
+                        id=re.sub("group", "control", group_id),
+                        title=f"{group_title} Controls",
                     )
-                ]
-                section_control_group.controls = section_control_list
-                section_group = self.add_subsection_to_parent(
-                    section_group, section_control_group
-                )
+
+                    section_control_list: list[catalog.Control] | None = [
+                        self.section_to_control(
+                            section_number=sec_num,
+                            section_contents=section_contents,
+                        )
+                    ]
+                    section_control_group.controls = section_control_list
+
+                    section_group = self.add_subsection_to_parent(
+                        section_group, section_control_group
+                    )
+                else:
+                    # Section does not have controls. Add anything in the overview to the group
+                    overview_parts: list[catalog.BasePart] = []
+                    if len(section_overview) > 0:
+                        for statement_number, overview_statement in enumerate(section_overview):
+                            overview_parts.append(
+                                catalog.GroupPart(
+                                    id=f"{group_id}-{statement_number}",
+                                    name="overview",
+                                    prose=overview_statement,
+                                )
+                            )
+                    
+                    section_group.parts = overview_parts
 
             return section_group
         else:
@@ -382,17 +415,13 @@ class SimpleOscalParser(AbstractParser):
         revision_list: list[common.Revision] = []
 
         # Get revision table column ids from config
-        if "revision_table" in self.parse_config.keys():
-            revision_columns = self.parse_config["revision_table"]
-            if "id_column" in revision_columns.keys():
-                id_column = revision_columns["id_column"]
-            if "date_column" in revision_columns.keys():
-                date_column = revision_columns["date_column"]
-            if "detail_column" in revision_columns.keys():
-                detail_column = revision_columns["detail_column"]
-        else:
-            # If configuration doesn't exist, return empty revision column
-            return revision_list
+        if "id_column" in self.revision_table_headings.keys():
+            id_column = self.revision_table_headings["id_column"]
+        if "date_column" in self.revision_table_headings.keys():
+            date_column = self.revision_table_headings["date_column"]
+        if "detail_column" in self.revision_table_headings.keys():
+            detail_column = self.revision_table_headings["detail_column"]
+
         
         for row in revisions[1:]:
             version_id = row[id_column]
