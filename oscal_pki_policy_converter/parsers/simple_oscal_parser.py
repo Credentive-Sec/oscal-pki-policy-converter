@@ -134,8 +134,15 @@ class SimpleOscalParser(AbstractParser):
 
     # pandoc leaves some "span" tags in the document, so we need to strip html out of text
     def strip_html_from_text(self, input: str) -> str:
-        return re.sub("<.*>", "", input)
+        return re.sub("<.*?>", "", input)
     
+    # utility function to determine whether a line of text has "requirement words" in it
+    def is_requirement(self, input: str) -> bool:
+        if any([keyword in input for keyword in self.parser_config["normative_keywords"]]):
+            return True
+        else:
+            return False
+
 
     # Pass in a subsection and it's parent, return the parent with the child attached
     def add_subsection_to_parent(
@@ -172,37 +179,40 @@ class SimpleOscalParser(AbstractParser):
                 normative_statements: list[str] = []
                 informative_statements: list[str] = []
                 table_start = -1 # Track starting point of a table. Negative indicates we're not in a table at all
-                for line_number, line in enumerate(section_contents[1:]): # Skip the first line, it's the title.
-                    if "<table" in section_contents:
+                contents_to_parse = section_contents[1:]
+                for line_number, line in enumerate(contents_to_parse): # Skip the first line, it's the title.
+                    if "<table" in line:
                         # We're inside an html table - skip until we reach the end (see next elif).
                         table_start = line_number
                         continue
-                    elif "</table" in section_contents:
+                    elif "</table" in line:
                         # We're out of the table - send the table contents to the parse_html_table function
                         table_end = line_number
-                        table_contents = self.parse_html_table(
-                            contents=section_contents[table_start:table_end], 
-                        )
-                        # TODO - Do something with the contents.
+                        # table_contents = self.parse_html_table(
+                        #     contents=section_contents[table_start:table_end+1], 
+                        # )
+
+                        # one_line_table = ""
                         # for row in table_contents:
-                        #     parts.append(
-                        #         catalog.StatementPart(
-                        #             id=f"{re.sub("ctrl", "stmt", control_id)}-{part_num}",
-                        #             name="statement",
-                        #             prose="|" + "|".join(row) + "|",
-                        #         )
-                        #     )
-                        #     part_num += 1
+                        #     one_line_table += "|" + "|".join(row) + "| <br/> "
+
+                        one_line_table = " ".join(contents_to_parse[table_start:table_end+1])
+
+                        if self.is_requirement(one_line_table):
+                            normative_statements.append(one_line_table)
+                        else:
+                            informative_statements.append(one_line_table)
+                        
                         table_start = -1
                     elif table_start > 0:
                         # If we're inside a table, keep going
                         continue
                     else:
                         # We're not in a table - process this as a regular line
-                        if any([keyword in line for keyword in self.parser_config["normative_keywords"]]):
-                            normative_statements.append(line)
+                        if self.is_requirement(line):
+                            normative_statements.append(self.strip_html_from_text(line))
                         else:
-                            informative_statements.append(line)
+                            informative_statements.append(self.strip_html_from_text(line))
 
                 # If a section has any requirements, they must go into an inner control group
                 # If a section has no requriements, but some statements, they should be added as parts of the group
@@ -211,17 +221,19 @@ class SimpleOscalParser(AbstractParser):
                     # The section contains requirements, and must have a control
                     # Controls must be inside an inner group since a group can't have both
                     # an inner group and inner controls
-                    section_control_group: catalog.Group = catalog.Group(
-                        id=re.sub("group", "control", group_id),
-                        title=f"{section_header}: Group for Normative Statements",
-                    )
-
                     section_control_list: list[catalog.Control] = [
                         self.section_to_control(
                             section_title = section_header,
                             control_list=normative_statements,
                         )
                     ]
+
+                    # Under some circumstances, 
+
+                    section_control_group: catalog.Group = catalog.Group(
+                        id=re.sub("group", "control", group_id),
+                        title=f"{section_header}: Group for Normative Statements",
+                    )
                     section_control_group.controls = section_control_list
 
                     section_group = self.add_subsection_to_parent(
@@ -259,19 +271,15 @@ class SimpleOscalParser(AbstractParser):
         parts: list[catalog.BasePart] = []
         part_num = 1
         for section_line_text in control_list:
-            if section_line_text[0] == "<":
-                # There is sometimes embedded html, which we don't want to include
-                continue
-            else:
-                # If we get here, it's a regular text line
-                parts.append(
-                    catalog.StatementPart(
-                        id=f"{re.sub("ctrl", "stmt", control_id)}-{part_num}",
-                        name="statement",
-                        prose=self.strip_html_from_text(section_line_text), # Strip any html left in.
-                    )
+            # If we get here, it's a regular text line
+            parts.append(
+                catalog.StatementPart(
+                    id=f"{re.sub("ctrl", "stmt", control_id)}-{part_num}",
+                    name="statement",
+                    prose=self.strip_html_from_text(section_line_text), # Strip any html left in.
                 )
-                part_num += 1
+            )
+            part_num += 1
 
         control.parts = parts
 
@@ -294,7 +302,7 @@ class SimpleOscalParser(AbstractParser):
                 table_end = line_number
                 # Revision history is maintained in a table - parse it
                 # Function works backwards from the END of a table, hence </table>
-                revision_table = self.parse_html_table(introduction[table_start:table_end])
+                revision_table = self.parse_html_table(introduction[table_start:table_end+1])
                 revisions = self.revision_history_to_revisions(revision_table)
 
                 # reset table_start counter
@@ -362,7 +370,7 @@ class SimpleOscalParser(AbstractParser):
                 # We're out of the table - send the table contents to the parse_html_table function
                 table_end = line_number
                 table_contents = self.parse_html_table(
-                    contents=contents[table_start:table_end], 
+                    contents=contents[table_start:table_end+1], 
                 )
                 # Do something with the contents
                 # for row in table_contents:
