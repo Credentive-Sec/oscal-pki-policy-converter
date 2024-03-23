@@ -33,7 +33,7 @@ backmatter_sections=["References", "Bibliography"]
 # uuid = "0be7b13e-0a68-4c16-af59-eb882b76a3cb"
 
 # These are keywords that indicate requirements
-requirement_keywords=["must", "shall", "should"]
+normative_keywords=["must", "shall", "should"]
 
 # A dictionary to identify which column in a revision history contains
 # - version id

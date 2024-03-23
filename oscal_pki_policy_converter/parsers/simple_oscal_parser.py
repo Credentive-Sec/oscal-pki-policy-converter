@@ -1,3 +1,4 @@
+from __future__ import annotations
 from oscal_pydantic import document, catalog
 from oscal_pydantic.core import common
 from datetime import datetime, timezone
@@ -9,73 +10,65 @@ from typing import Any
 from . import AbstractParser
 
 class SimpleOscalParser(AbstractParser):
-    # We rely on the TOC in several places, so we define it first
-    # Turns out this doesn't solve the problem of multiple sections with the same name, so I am abandoning it.
-    toc_dict: dict[str, str] = {}
-    toc_line_re = re.compile(r"^\[(?P<secnum>[\d\.]+)\s(?P<secname>[\w\s-]+)\s\[.*$")
-
-    # Stupid python trick, initialize a list with zeroes using list comprehension
-    toc_pos: list[int] = [0 for _ in range(1, 10)]
-    toc_pos[0] = 1
-
-
     # NOTE: This program relies heavily on the specific format of the tokenized CP documents.
     def policy_to_catalog(self, parse_config: dict[str, Any], policy_text: list[str]) -> document.Document:
         # First, create an object variable representing the parser configuration toml file 
         if "parser-configuration" in parse_config.keys():
-            self.parse_config = parse_config["parser-configuration"]
+            self.parser_config: dict[str, Any] = parse_config["parser-configuration"]
         if "revision-table" in parse_config.keys():
-            self.revision_table_headings = parse_config["revision-table"]
+            self.revision_table_headings: dict[str, Any] = parse_config["revision-table"]
 
 
         # We will parse the document and store all of the sections as their own list in a nested list
-        sections: list[list[str]] = []
-
         section: list[str] = []
+        sections: list[list[str]] = []
 
         # Parse the policy into lists
         for line in policy_text:
-            if len(line) == 0:
+            if line: # Non-empty string is True
+                if line[0] == "#":
+                    # We've reached a new section. Assign the strings to the current
+                    # section and reset the list
+                    sections.append(section.copy())
+                    section.clear()
+                    section.append(line)
+                else:
+                    section.append(line)
+            else:
                 # Skip blank lines
                 continue
-            elif line[0] == "#":
-                # We've reached a new section. Assign the strings to the current
-                # section and reset the list
-                sections.append(section.copy())
-                section.clear()
-                section.append(line)
-            else:
-                section.append(line)
 
         # We have now parsed the policy into a list of lists, where each
         # outer list represents a section of the document.
 
         # The first list is always the introduction/metadata
         metadata = self.parse_metadata(sections[0])
+        metadata.title = self.parser_config["title"]
+
+        # Initialize an empty back-matter for later
+        backmatter = None
 
         # We keep a stack to represent the current place in the TOC
         parent_stack: list[catalog.Group] = []
 
+        # We also keep a list of ordered sections add to the final catalog
         section_groups: list[catalog.Group] = []
-
-        # Initialize an empty back-matter for later
-        backmatter = None
 
         # Step through the sections and generate the appropriate OSCAL objects.
         # We skip the first section because is it the title page and other stuff
         for section in sections[1:]:
             # Check for a couple of special sections that we expect to see: TOC and References
             # First line of section is the contents, so we can check there
-            if "toc_marker" in self.parse_config.keys() and self.parse_config["toc_marker"] in section[0]:
+            if "toc_marker" in self.parser_config.keys() and self.parser_config["toc_marker"] in section[0]:
                 # In some versions of common, the TOC is a separate section - skip it.
                 continue
-            # The list of related documents is in a section titled "References" or "Bibliography" - Note we need to strip leading "#"
-            if "backmatter_sections" in self.parse_config.keys() and any([match for match in self.parse_config["backmatter_sections"] if match in section[0]]):
+            # If the config file specifies sections that will contain backmatter, and this section is one of them, parser it as such
+            if "backmatter_sections" in self.parser_config.keys() and any([match for match in self.parser_config["backmatter_sections"] if match in section[0]]):
                 # Pass everything except the title line to parse_backmatter
                 backmatter = self.parse_backmatter(section[1:])
                 continue
             
-            # Assume every other section is a 
+            # Assume every other section is a section with requirements
             # The first line has the section title, and because ift is MD,
             # the number of hashes indicate the depth in the TOC
             header_hashes = re.match(r"#+", section[0])
@@ -87,22 +80,17 @@ class SimpleOscalParser(AbstractParser):
                     section_contents=section, section_depth=section_depth
                 )
 
-                # Figure out where the section fits in the overall document
                 if current_group is None:
                     # Sometimes we get blank headers in the Markdown. skip these.
                     continue
-                else:
-                    # update the TOC counter
-                    self.toc_pos[section_depth - 1] += 1
-
-                    self.toc_pos[section_depth:] = [0 for _ in range(0,9-section_depth)]
-
+                # We use a stack to keep track of the heierarchy
                 if section_depth == 1:
-                    if len(parent_stack) == 0:
+                    if parent_stack:
+                        parent_stack[0] = current_group
+                    else:
                         # e.g. this is the first run through the loop
                         parent_stack = [current_group]
-                    else:
-                        parent_stack[0] = current_group
+
                     # Add the top-level group to the final list of groups
                     section_groups.append(parent_stack[0])
                 else:
@@ -131,7 +119,7 @@ class SimpleOscalParser(AbstractParser):
                 raise Exception("Section does not have a title")
 
 
-        if backmatter is None:
+        if not backmatter:
             # back-matter is required, so if we couldn't initialize it, we create an empty one now.
             backmatter = self.parse_backmatter([])
 
@@ -144,85 +132,94 @@ class SimpleOscalParser(AbstractParser):
 
         return document.Document(catalog=common_catalog)
 
-
-    def parse_table_of_contents(self, contents: list[str]):
-        for line in contents:
-            toc_line_match = self.toc_line_re.match(line)
-            if toc_line_match is not None:
-                toc_line_dict = toc_line_match.groupdict()
-                self.toc_dict[toc_line_dict["secname"]] = toc_line_dict["secnum"]
-
-
-    # pandoc left some "span" tags in the document, so we need to strip html out of text
+    # pandoc leaves some "span" tags in the document, so we need to strip html out of text
     def strip_html_from_text(self, input: str) -> str:
         return re.sub("<.*>", "", input)
-        
+    
+
+    # Pass in a subsection and it's parent, return the parent with the child attached
     def add_subsection_to_parent(
         self, parent: catalog.Group, child: catalog.Group
     ) -> catalog.Group:
-        if parent.groups is None:
-            parent.groups = [child]
-        else:
+        if parent.groups:
             parent.groups.append(child)
+        else:
+            parent.groups = [child]
 
         return parent
-
-
-    def title_to_id(self, title: str) -> str:
-        # Turn "Section Name" into "section-name"
-        id = title.lower().strip().replace(" ", "-")
-        # Some sections have invalid characters in the name. the next line removes them
-        id = "".join([c for c in id if c not in "(),/’:"])
-        return id
-
 
     def section_to_group(
         self, section_contents: list[str], section_depth: int
     ) -> catalog.Group | None:
-        # Derive the section number
-        sec_num = ".".join([str(x) for x in self.toc_pos][:section_depth])
-
-        # First line in the title of the group.
+        # First line is the section header.
         # Strip off the leading hashes and the trailing space
-        group_title = self.strip_html_from_text(re.sub("#+", "", section_contents[0]).strip())
+        section_header = self.strip_html_from_text(re.sub("#+", "", section_contents[0]).strip())
 
         # Sometimes we get empty headings - if so we'll skip this whole process
-        if group_title != "":
-            # Turn "Section Name" into "section-name"
-            group_id = f"group-{sec_num}-{self.title_to_id(group_title)}"
+        if not section_header:
+            return None
+        else:
+            # Create a UUID to represent the group_id
+            group_id = f"group-{uuid.uuid4()}"
 
             section_group = catalog.Group(
                 id=group_id,
-                title=f"{sec_num} {group_title}",
+                title=f"{section_header}",
             )
 
             if len(section_contents) > 1:
                 # Process contents to identify any text that contains requriements
-                section_requirements: list[str] = []
-                section_overview: list[str] = []
-                for line in section_contents:
-                    if any([keyword in line for keyword in self.parse_config["requirement_keywords"]]):
-                        section_requirements.append(line)
+                normative_statements: list[str] = []
+                informative_statements: list[str] = []
+                table_start = -1 # Track starting point of a table. Negative indicates we're not in a table at all
+                for line_number, line in enumerate(section_contents[1:]): # Skip the first line, it's the title.
+                    if "<table" in section_contents:
+                        # We're inside an html table - skip until we reach the end (see next elif).
+                        table_start = line_number
+                        continue
+                    elif "</table" in section_contents:
+                        # We're out of the table - send the table contents to the parse_html_table function
+                        table_end = line_number
+                        table_contents = self.parse_html_table(
+                            contents=section_contents[table_start:table_end], 
+                        )
+                        # TODO - Do something with the contents.
+                        # for row in table_contents:
+                        #     parts.append(
+                        #         catalog.StatementPart(
+                        #             id=f"{re.sub("ctrl", "stmt", control_id)}-{part_num}",
+                        #             name="statement",
+                        #             prose="|" + "|".join(row) + "|",
+                        #         )
+                        #     )
+                        #     part_num += 1
+                        table_start = -1
+                    elif table_start > 0:
+                        # If we're inside a table, keep going
+                        continue
                     else:
-                        section_overview.append(line)
+                        # We're not in a table - process this as a regular line
+                        if any([keyword in line for keyword in self.parser_config["normative_keywords"]]):
+                            normative_statements.append(line)
+                        else:
+                            informative_statements.append(line)
 
                 # If a section has any requirements, they must go into an inner control group
-                # If a section has no requriements, but some statements, they should be added as parts
+                # If a section has no requriements, but some statements, they should be added as parts of the group
                 # Finally, if a section has no text at all, just return the group.
-
-                if len(section_requirements) > 0 :
+                if normative_statements:
                     # The section contains requirements, and must have a control
                     # Controls must be inside an inner group since a group can't have both
                     # an inner group and inner controls
                     section_control_group: catalog.Group = catalog.Group(
                         id=re.sub("group", "control", group_id),
-                        title=f"{group_title} Controls",
+                        title=f"{section_header}: Group for Normative Statements",
                     )
 
-                    section_control_list: list[catalog.Control] | None = [
+                    section_control_list: list[catalog.Control] = [
                         self.section_to_control(
-                            section_number=sec_num,
-                            section_contents=section_contents,
+                            section_title = section_header,
+                            control_list=normative_statements,
                         )
                     ]
                     section_control_group.controls = section_control_list
@@ -230,32 +227,29 @@ class SimpleOscalParser(AbstractParser):
                     section_group = self.add_subsection_to_parent(
                         section_group, section_control_group
                     )
-                else:
-                    # Section does not have controls. Add anything in the overview to the group
-                    overview_parts: list[catalog.BasePart] = []
-                    if len(section_overview) > 0:
-                        for statement_number, overview_statement in enumerate(section_overview):
-                            overview_parts.append(
-                                catalog.GroupPart(
-                                    id=f"{group_id}-{statement_number}",
-                                    name="overview",
-                                    prose=overview_statement,
-                                )
+                if informative_statements:
+                    # add informative statements
+                    informative_parts: list[catalog.BasePart] = []
+                    for statement_number, overview_statement in enumerate(informative_statements):
+                        informative_parts.append(
+                            catalog.GroupPart(
+                                id=f"{group_id}-{statement_number}",
+                                name="overview",
+                                prose=overview_statement,
                             )
-                    
-                    section_group.parts = overview_parts
+                        )
+                
+                    section_group.parts = informative_parts
 
             return section_group
-        else:
-            return None
 
 
     def section_to_control(
-        self, section_number: str, section_contents: list[str]
+        self, section_title: str, control_list: list[str]
     ) -> catalog.Control:
         # Strip off the leading hashes and the surrounding spaces
-        control_title = self.strip_html_from_text(re.sub("#+", "", section_contents[0]).strip())
-        control_id = f"ctrl-{section_number}-{self.title_to_id(control_title)}"
+        control_title = f"{section_title}: Normative Statements"
+        control_id = f"ctrl-{uuid.uuid4()}"
         control = catalog.Control(
             id=control_id,
             title=control_title,
@@ -264,29 +258,8 @@ class SimpleOscalParser(AbstractParser):
 
         parts: list[catalog.BasePart] = []
         part_num = 1
-        in_table: bool = False
-        for section_line_number, section_line_text in enumerate(section_contents[1:]):
-            if "<table" in section_line_text:
-                # We're inside an html table - we should ignore all content until we are out again.
-                in_table = True
-                continue
-            elif "</table" in section_line_text:
-                in_table = False
-                table_contents = self.parse_html_table(
-                    contents=section_contents, table_end_line=section_line_number
-                )
-                for row in table_contents:
-                    parts.append(
-                        catalog.StatementPart(
-                            id=f"{re.sub("ctrl", "stmt", control_id)}-{part_num}",
-                            name="statement",
-                            prose="|" + "|".join(row) + "|",
-                        )
-                    )
-                    part_num += 1
-            elif in_table:
-                continue
-            elif section_line_text[0] == "<":
+        for section_line_text in control_list:
+            if section_line_text[0] == "<":
                 # There is sometimes embedded html, which we don't want to include
                 continue
             else:
@@ -306,40 +279,43 @@ class SimpleOscalParser(AbstractParser):
 
 
     def parse_metadata(self, introduction: list[str]) -> common.Metadata:
+        version_marker: str = self.parser_config["version_marker"]
+        publication_date_format: str = self.parser_config["publication_date_format"]
         version = ""
         published = None
         revisions = None
-        in_table: bool = False  # track if we're in a table
+        table_start = -1
         in_toc: bool = False  # track if we're in a TOC
-        toc_lines: list[str] = []  # lines of the TOC to pass to the toc parser
         for line_number, line in enumerate(introduction):
-            if line == "":
-                # Blank line, ignore and move on
-                continue
-            elif "<table" in line:
+            if "<table" in line:
                 # We're inside an html table - we should ignore all content until we are out again.
-                in_table = True
+                table_start = line_number
             elif "</table" in line:
-                in_table = False
+                table_end = line_number
                 # Revision history is maintained in a table - parse it
                 # Function works backwards from the END of a table, hence </table>
-                revision_table = self.parse_html_table(introduction, line_number)
+                revision_table = self.parse_html_table(introduction[table_start:table_end])
                 revisions = self.revision_history_to_revisions(revision_table)
 
+                # reset table_start counter
+                table_start = -1
+                
                 # revision_history_to_revisions can return an empty list
                 # In this case, set revisions to None so that it is excluded from
                 # the final output
-                if len(revisions) == 0:
+                if not revisions:
                     revisions = None
                     
                 continue
-            elif in_table:
+            elif table_start > 0:
                 continue
-            elif "toc_marker" in self.parse_config and self.parse_config["toc_marker"] in line:
+
+            # This TOC tracking code is very clumsy! TODO - fix it!
+            elif "toc_marker" in self.parser_config and self.parser_config["toc_marker"] in line:
                 in_toc = True
             elif line[0] == "[" and in_toc:
-                toc_lines.append(line)
-            elif "Version " in line and not in_toc:
+                continue
+            elif version_marker in line and not in_toc:
                 # Parse out the version number then move on
                 # complicated pattern because of some strange inputs
                 version = re.sub(r"^Version[\s\-\d]*\s", "", line)
@@ -352,22 +328,20 @@ class SimpleOscalParser(AbstractParser):
             else:
                 try:
                     # Try to parse the line as a date
-                    published = datetime.strptime(line, "%B %d, %Y").replace(
+                    published = datetime.strptime(line, publication_date_format).replace(
                         tzinfo=timezone.utc
                     )
                 except ValueError:
                     continue
 
-        self.parse_table_of_contents(toc_lines)
-
-        if version == "" or published is None:
+        if not version or not published:
             raise ValueError("Introduction is missing Version and/or Publication Date.")
         else:
             return common.Metadata(
-                title="Converted PKI Policy",
+                title="Placeholder - will be replaced in calling function",
                 published=published.isoformat(),
                 version=version,
-                oscal_version="1.1.2",  # TODO
+                oscal_version="1.1.2",  # TODO - get version from oscal-pydantic library
                 revisions=revisions,
             )
 
@@ -378,9 +352,34 @@ class SimpleOscalParser(AbstractParser):
         resource_list: list[common.Resource] = []
 
         # References are passed in as an html table - parse it
-        for index, line in enumerate(contents):
-            if "</table" in line:
-                resource_table = self.parse_html_table(contents=contents, table_end_line=index-1) # Have to subtract 1 from index for the parse_html_table function
+        for line_number, line in enumerate(contents):
+            table_start = -1
+            if "<table" in contents:
+                # We're inside an html table - skip until we reach the end (see next elif).
+                table_start = line_number
+                continue
+            elif "</table" in contents:
+                # We're out of the table - send the table contents to the parse_html_table function
+                table_end = line_number
+                table_contents = self.parse_html_table(
+                    contents=contents[table_start:table_end], 
+                )
+                # Do something with the contents
+                # for row in table_contents:
+                #     parts.append(
+                #         catalog.StatementPart(
+                #             id=f"{re.sub("ctrl", "stmt", control_id)}-{part_num}",
+                #             name="statement",
+                #             prose="|" + "|".join(row) + "|",
+                #         )
+                #     )
+                #     part_num += 1
+                table_start = -1
+            elif table_start > 0:
+                # If we're inside a table, keep going
+                continue
+            
+            resource_table = self.parse_html_table(contents=contents) # Have to subtract 1 from index for the parse_html_table function
         
         resource_re = re.compile(r"^(?P<name>.*)\s*(?P<url>http.*)\s*$")
         # Format should be document_title, description, URL
@@ -445,16 +444,7 @@ class SimpleOscalParser(AbstractParser):
         return revision_list
 
 
-    def parse_html_table(self, contents: list[str], table_end_line: int) -> list[list[str]]:
-        # Start with the end of the table
-        current_line = table_end_line + 1
-
-        # Walk up until we find the opening tag
-        while "<table" not in contents[current_line]:
-            current_line -= 1
-
-        table_list = contents[current_line : table_end_line + 2]
-
+    def parse_html_table(self, contents: list[str]) -> list[list[str]]:
         # It's weird to define a class inside a function, but this is how HTMLParser works.
         class TableParser(HTMLParser):
             parsed_table: list[list[str]] = []
@@ -495,5 +485,5 @@ class SimpleOscalParser(AbstractParser):
                 return self.parsed_table
 
         table_parser = TableParser()
-        table_parser.feed("".join(table_list))
+        table_parser.feed("".join(contents))
         return table_parser.return_results()
