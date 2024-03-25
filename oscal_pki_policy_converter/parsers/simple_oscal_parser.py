@@ -136,6 +136,13 @@ class SimpleOscalParser(AbstractParser):
     def strip_html_from_text(self, input: str) -> str:
         return re.sub("<.*?>", "", input)
     
+    # Sometimes we need to strip markdown out of a line to process it. This function strips out the most common MD tags
+    def strip_markdown_from_text(self, input:str) -> str:
+        input = input.replace("*", "") # Bold(**) and italic(*)
+        input = input.replace("__", "") # Underline
+        return input
+
+
     # utility function to determine whether a line of text has "requirement words" in it
     def is_requirement(self, input: str) -> bool:
         if any([keyword in input for keyword in self.parser_config["normative_keywords"]]):
@@ -326,7 +333,8 @@ class SimpleOscalParser(AbstractParser):
             elif version_marker in line and not in_toc:
                 # Parse out the version number then move on
                 # complicated pattern because of some strange inputs
-                version = re.sub(r"^Version[\s\-\d]*\s", "", line)
+                regex = f"^{version_marker}" + r"[\s\-\d]*\s"
+                version = re.sub(regex, "", self.strip_markdown_from_text(line))
                 continue
             elif line[0] in "*<>[(" and not in_toc:
                 # First character of the line indicates it's a structural or other
