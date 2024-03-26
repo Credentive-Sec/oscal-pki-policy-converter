@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path, PurePath
 import sys, os, argparse, tomllib
 from typing import Any
 
@@ -33,8 +33,14 @@ if __name__ == "__main__":
         oscal_parser = parsers.choose_parser(args.parser_type)
 
     if args.config_file is not None:
-        config_file = Path(os.getcwd(), Path(args.config_file))
+        if PurePath(args.config_file).is_absolute():
+            # If the user passes in a full path, use it
+            config_file = Path(args.config_file)
+        else:
+            # Otherwise, assume that the config file is inside the package
+            config_file = Path(os.getcwd(), Path(args.config_file))
     else:
+        # If no config file is specified, assume we're processing common
         config_file = Path(sys.path[0], Path("common.toml"))
 
 

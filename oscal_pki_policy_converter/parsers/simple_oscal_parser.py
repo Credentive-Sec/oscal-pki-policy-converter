@@ -10,7 +10,7 @@ from typing import Any
 from . import AbstractParser
 
 class SimpleOscalParser(AbstractParser):
-    # NOTE: This program relies heavily on the specific format of the tokenized CP documents.
+    # NOTE: This parser relies heavily on the specific format of the tokenized CP documents.
     def policy_to_catalog(self, parse_config: dict[str, Any], policy_text: list[str]) -> document.Document:
         # First, create an object variable representing the parser configuration toml file 
         if "parser-configuration" in parse_config.keys():
@@ -41,9 +41,10 @@ class SimpleOscalParser(AbstractParser):
         # We have now parsed the policy into a list of lists, where each
         # outer list represents a section of the document.
 
-        # The first list is always the introduction/metadata
-        metadata = self.parse_metadata(sections[0])
-        metadata.title = self.parser_config["title"]
+        # If the first list is the introduction/metadata, parse it now
+        if self.parser_config["metadata_in_first_section"]:
+            metadata = self.parse_metadata(sections[0])
+            metadata.title = self.parser_config["title"]
 
         # Initialize an empty back-matter for later
         backmatter = None
@@ -336,15 +337,15 @@ class SimpleOscalParser(AbstractParser):
                 regex = f"^{version_marker}" + r"[\s\-\d]*\s"
                 version = re.sub(regex, "", self.strip_markdown_from_text(line))
                 continue
-            elif line[0] in "*<>[(" and not in_toc:
-                # First character of the line indicates it's a structural or other
-                # metadata line, ignore since we've already parsed the ones we're
-                # interested in
-                continue
+            # elif line[0] in "*<>[(" and not in_toc:
+            #     # First character of the line indicates it's a structural or other
+            #     # metadata line, ignore since we've already parsed the ones we're
+            #     # interested in
+            #     continue
             else:
                 try:
                     # Try to parse the line as a date
-                    published = datetime.strptime(line, publication_date_format).replace(
+                    published = datetime.strptime(self.strip_markdown_from_text(line), publication_date_format).replace(
                         tzinfo=timezone.utc
                     )
                 except ValueError:

@@ -3,7 +3,7 @@
 [parser-configuration]
 # The title of a policy document is surprisingly difficult to identify by parsing, 
 # please provide it here
-title="X.509 Certificate Policy for the U.S. Federal PKI Common Policy Framework"
+title="X.509 Certificate Policy for the Federal Bridge Certification Authority"
 
 # The word that precedes the version number, if any
 version_marker="Version"

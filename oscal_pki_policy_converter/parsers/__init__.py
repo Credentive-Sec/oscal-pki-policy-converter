@@ -7,5 +7,5 @@ def choose_parser(parser_arg: str) -> AbstractParser:
     if parser_arg == "simple":
         return SimpleOscalParser()
     else:
-        return AbstractParser()
+        raise Exception("No parser passed to function")
 

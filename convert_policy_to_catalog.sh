@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 
-while getopts ":p:c:h" opt; do
+while getopts ":p:c:fh" opt; do
     case $opt in
         p) policy_arg="$OPTARG";;
         c) config_arg="$OPTARG";;
+        f) force=true;;
         h) echo "Usage: convert_policy_to_catalog.sh -c <config file> -p <policy file>"; exit 0;;
         \?) echo "Invalid option: -$OPTARG"; exit 1;;
     esac
@@ -20,10 +21,10 @@ fi
 
 if [[ -z $config_arg ]]; then
     echo "No configuration file provided. Using default file (common.toml)"
+    configuration_file=common.toml
 else
-    echo "Configuration file provided: $config_arg"
-    configuration_file=$(cd "$(dirname $config_arg)" && pwd)/$(basename "$config_arg")
-    echo "Configuration file provided: $config_arg"
+    configuration_file=$config_arg
+    echo "Configuration file provided: $configuration_file"
 fi
 
 # Setup some environment variables
@@ -69,15 +70,36 @@ export PANDOC_DIR=/tmp/.oscal-pki-policy-converter
     # Convert the document to markdown with pandoc
     POLICY_BASE=$(basename $POLICY_FILE)
     MD_FILE=${POLICY_BASE/\.docx/\.md}
-    echo converting $POLICY_FILE to $MD_FILE
-    $PANDOC_EXE "$POLICY_FILE" -o "$PANDOC_DIR/$MD_FILE" --wrap=none --to=gfm
+    if [[ -f $PANDOC_DIR/$MD_FILE  ]]; then
+        if [[ force == "true" ]]; then
+            echo Markdown file exists, but force flag set. Recreating...
+            $PANDOC_EXE "$POLICY_FILE" -o "$PANDOC_DIR/$MD_FILE" --wrap=none --to=gfm
+        else
+            echo Markdown file exists. Skipping conversion...
+        fi
+    else
+        echo converting docx to md
+        $PANDOC_EXE "$POLICY_FILE" -o "$PANDOC_DIR/$MD_FILE" --wrap=none --to=gfm
+    fi
 
-    echo conversion completed, tokenizing markdown file
+    echo Conversion to markdown completed...
 
     # Tokenize the document
-     poetry run python -m pki_policy_tokenizer "$PANDOC_DIR/$MD_FILE"
 
-    echo tokenization completed, converting to OSCAL catalog
+    TOKENIZED_FILE=${POLICY_BASE/\.docx/\.tokenized}
+    if [[ -f $PANDOC_DIR/$TOKENIZED_FILE ]]; then
+        if [[ force == "true" ]]; then
+            echo Tokenized file exists, but force flag set. Recreating...
+            poetry run python -m pki_policy_tokenizer "$PANDOC_DIR/$MD_FILE"
+        else
+            echo Tokenized file exists. Skipping tokenization...
+        fi
+    else
+        echo Tokenizing markdown file...
+        poetry run python -m pki_policy_tokenizer "$PANDOC_DIR/$MD_FILE"
+    fi
+
+    echo tokenization completed
 
     OUTPUT_FILENAME=$(dirname $POLICY_FILE)/${POLICY_BASE/\.docx/_oscal\.json}
 
