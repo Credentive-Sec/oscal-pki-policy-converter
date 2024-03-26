@@ -337,11 +337,6 @@ class SimpleOscalParser(AbstractParser):
                 regex = f"^{version_marker}" + r"[\s\-\d]*\s"
                 version = re.sub(regex, "", self.strip_markdown_from_text(line))
                 continue
-            # elif line[0] in "*<>[(" and not in_toc:
-            #     # First character of the line indicates it's a structural or other
-            #     # metadata line, ignore since we've already parsed the ones we're
-            #     # interested in
-            #     continue
             else:
                 try:
                     # Try to parse the line as a date
