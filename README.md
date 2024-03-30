@@ -10,5 +10,6 @@ Future versions will be installable without these requirements.
 The following items are on our short term roadmap:
 
 - ~~Abstract and parameterize the configuration of the parser, so that it is easier to adapt to different policies.~~ DONE!
-- Expand the output from a basic OSCAL catalog to a richer version that better supports the audit processes.
+- ~~Expand the output from a basic OSCAL catalog to a richer version that better supports the audit processes.~~ Much Better, but more to come.
 - Update the tool to simplify deployment and installation.
+- NEW! Documentation
